@@ -39,9 +39,16 @@ def test_no_provider_credential_is_visible_to_tests():
     )
 
 
-def test_no_repowise_config_var_is_visible_to_tests():
-    leaked = sorted(name for name in os.environ if name.startswith("REPOWISE_"))
-    assert leaked == []
+def test_nothing_the_fixture_stripped_came_back(stripped_ambient_vars):
+    """Scoped to what this machine actually had, not to every ``REPOWISE_*``.
+
+    A blanket "no REPOWISE_ variable exists" assertion fails for a correct
+    reason: another session fixture sets ``REPOWISE_SKIP_EDITOR_SETUP`` on
+    purpose so tests cannot write real editor config. What must hold is that
+    the developer's own exported values stay hidden.
+    """
+    returned = sorted(name for name in stripped_ambient_vars if name in os.environ)
+    assert returned == []
 
 
 def test_isolation_covers_every_llm_registry_credential(ambient_steering_vars):

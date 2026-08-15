@@ -83,6 +83,19 @@ def ambient_steering_vars() -> set[str]:
     return _ambient_steering_vars()
 
 
+@pytest.fixture(scope="session")
+def stripped_ambient_vars(_isolate_ambient_env) -> dict[str, str]:
+    """What the isolation fixture actually removed from this machine.
+
+    The thing worth asserting is that none of *these* came back, not that no
+    ``REPOWISE_*`` variable exists at all: other session fixtures set some on
+    purpose (``REPOWISE_SKIP_EDITOR_SETUP`` keeps tests from writing real
+    editor config), and a blanket assertion turns their correct behaviour into
+    a failure.
+    """
+    return _isolate_ambient_env
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _no_telemetry_network(tmp_path_factory: pytest.TempPathFactory):
     """Guarantee no test emits telemetry over the network or into real state.
