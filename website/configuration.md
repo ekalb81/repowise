@@ -308,6 +308,13 @@ API keys can be provided in three ways, checked in this order:
 2. **`.repowise/.env`** — persisted from interactive setup, loaded automatically
 3. **Interactive prompt** — repowise asks during `init` if no key is found, then saves to `.repowise/.env`
 
+An exported variable always wins over the saved one. When the two disagree,
+repowise names the contested variable on stderr and `repowise doctor` reports
+it under **Env vs .repowise/.env** — the values are never printed. This is the
+one failure that otherwise looks like a bad saved key: an unrelated
+`OPENAI_API_KEY` in your shell is sent to whatever endpoint the repo
+configured, and the `401` names neither the variable nor the file.
+
 The `.repowise/.env` file is gitignored automatically. Example:
 
 ```env

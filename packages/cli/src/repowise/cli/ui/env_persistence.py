@@ -41,6 +41,43 @@ def load_dotenv(repo_path: Path) -> None:
         if key and value and key not in os.environ:
             os.environ[key] = value
 
+    _warn_on_shadowed_keys(repo_path)
+
+
+def _warn_on_shadowed_keys(repo_path: Path) -> None:
+    """Say which saved variables the ambient environment overrode.
+
+    The precedence itself is intentional and unchanged — an exported value
+    still wins. What was missing is any sign that it happened. A machine with
+    an unrelated ``OPENAI_API_KEY`` exported sends that key to whatever
+    endpoint the repo configured, and the resulting ``401 invalid API key``
+    names neither the variable nor this file, so the obvious reading is that
+    the *saved* key is bad.
+
+    stderr, not stdout, for the reason ``build_embedder`` gives: every caller's
+    stdout may be a machine-readable document, and a warning printed in front
+    of JSON breaks the parser reading it. Names only — never values.
+    """
+    try:
+        from repowise.core.repo_config import env_conflicts
+
+        contested = env_conflicts(repo_path)
+    except Exception:  # never let a diagnostic take the command down
+        return
+    if not contested:
+        return
+
+    try:
+        from repowise.cli.helpers import err_console
+
+        err_console.print(
+            f"[yellow]Environment overrides .repowise/.env:[/yellow] {', '.join(contested)}\n"
+            "The exported value is being used; the saved one is ignored. Unset it in this "
+            "shell, or update the export, if you meant to use what the repo saved."
+        )
+    except Exception:
+        return
+
 
 def _strip_quotes(value: str) -> str:
     """Strip one pair of matching surrounding single or double quotes."""

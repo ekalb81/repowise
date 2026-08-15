@@ -2,9 +2,85 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
+
+# Steering variables that live outside the provider/embedder registry tables:
+# either they belong to an embedder with no LLM counterpart (voxell), or they
+# tune a backend without naming a credential (the ollama trio), or they point
+# persistence somewhere else entirely (DATABASE_URL).
+_AMBIENT_EXTRA_VARS = frozenset(
+    {
+        "VOXELL_API_KEY",
+        "VOXELL_BASE_URL",
+        "OLLAMA_EMBEDDING_MODEL",
+        "OLLAMA_EMBEDDING_DIMS",
+        "OLLAMA_EMBEDDING_TIMEOUT",
+        "DATABASE_URL",
+    }
+)
+
+
+def _ambient_steering_vars() -> set[str]:
+    """Every environment variable that can steer provider/embedder resolution.
+
+    Derived from the registry tables rather than retyped, so a provider added
+    there is isolated here without anyone remembering. ``REPOWISE_*`` is taken
+    by prefix for the same reason: the config knobs (``REPOWISE_PROVIDER``,
+    ``REPOWISE_MODEL``, ``REPOWISE_EMBEDDER``, the embedding trio, reasoning,
+    the database URLs) all share it, and a new one should not need a second
+    edit here to be covered.
+    """
+    names: set[str] = set(_AMBIENT_EXTRA_VARS)
+    try:
+        from repowise.core.providers.llm.registry import (
+            PROVIDER_API_KEY_ENVS,
+            PROVIDER_BASE_URL_ENVS,
+        )
+    except Exception:  # pragma: no cover - registry import is not test-critical
+        pass
+    else:
+        for table in (PROVIDER_API_KEY_ENVS, PROVIDER_BASE_URL_ENVS):
+            for group in table.values():
+                names.update(group)
+    names.update(name for name in os.environ if name.startswith("REPOWISE_"))
+    return names
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _isolate_ambient_env():
+    """Hide the developer's own credentials and config from every test.
+
+    Resolution is deliberately environment-first — ``REPOWISE_PROVIDER`` beats
+    ``config.yaml``, an exported key beats ``.repowise/.env`` — so a machine
+    that exports one silently changes what the code under test resolves. The
+    tests that assert a *default* are the ones that break: a developer with
+    ``OPENAI_API_KEY`` set watches ``test_advanced_config_default_keys_no_fast``
+    read ``embedder: openai`` where it expects ``mock``, and
+    ``test_update_provider_prompt`` see no prompt because credentials were
+    already found. Both pass in CI and fail on the machine, which reads as
+    flakiness rather than as a leak.
+
+    Session scope, not function: this is about the ambient environment the
+    process started with. Tests that want a variable set continue to use
+    ``monkeypatch.setenv``, which runs after this and is undone per test.
+    """
+    saved = {}
+    for name in _ambient_steering_vars():
+        if name in os.environ:
+            saved[name] = os.environ.pop(name)
+    try:
+        yield saved
+    finally:
+        os.environ.update(saved)
+
+
+@pytest.fixture(scope="session")
+def ambient_steering_vars() -> set[str]:
+    """The isolated variable set, exposed so the drift test can check coverage."""
+    return _ambient_steering_vars()
 
 
 @pytest.fixture(scope="session", autouse=True)

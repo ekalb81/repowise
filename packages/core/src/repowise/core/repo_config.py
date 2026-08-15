@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -130,6 +132,28 @@ def load_repo_env(repo_path: Path | str) -> dict[str, str]:
         if key and value:
             result[key] = value
     return result
+
+
+def env_conflicts(
+    repo_path: Path | str,
+    environ: Mapping[str, str] | None = None,
+) -> list[str]:
+    """Names in ``.repowise/.env`` that the environment already sets differently.
+
+    ``load_dotenv`` never overwrites an existing variable — an exported value
+    is meant to win over a saved one. The cost is that the losing value is
+    invisible: a machine with ``OPENAI_API_KEY`` exported keeps sending *that*
+    key no matter what the repo saved, and a repo pointed at an
+    OpenAI-compatible endpoint gets back a 401 that names neither the file it
+    read nor the variable that beat it.
+
+    Returns the variable **names** only, sorted. Never the values: these are
+    credentials, and the caller's job is to say which knob is contested, not to
+    print either side of it.
+    """
+    env = os.environ if environ is None else environ
+    saved = load_repo_env(repo_path)
+    return sorted(name for name, value in saved.items() if name in env and env[name] != value)
 
 
 def _strip_quotes(value: str) -> str:
