@@ -38,6 +38,7 @@ _EMBEDDER_REMEDIATION: dict[str, str] = {
     ),
     "ollama": "start Ollama, pull an embedding model, and set OLLAMA_BASE_URL if not local",
     "openrouter": "set OPENROUTER_API_KEY in the MCP server's environment (and `pip install openai`)",
+    "voxell": "set VOXELL_API_KEY in the MCP server's environment (and `pip install openai`)",
 }
 
 
@@ -72,6 +73,7 @@ _EMBEDDER_KEY_ENV: dict[str, tuple[str, ...]] = {
     "openai": ("OPENAI_API_KEY",),
     "gemini": ("GEMINI_API_KEY", "GOOGLE_API_KEY"),
     "openrouter": ("OPENROUTER_API_KEY",),
+    "voxell": ("VOXELL_API_KEY",),
 }
 
 

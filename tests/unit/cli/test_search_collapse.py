@@ -241,7 +241,7 @@ def repo(tmp_path):
 def _invoke(monkeypatch, command, args, repo, payload, calls=None, expect_exit=0):
     """``risk`` takes its repo as ``--path``; it has no ``--no-workspace``."""
     monkeypatch.setattr(_ta, "run", _spy_run(payload, calls if calls is not None else []))
-    result = CliRunner(mix_stderr=False).invoke(command, [*args, "--path", str(repo)])
+    result = CliRunner().invoke(command, [*args, "--path", str(repo)])
     assert result.exit_code == expect_exit, result.output + (result.stderr or "")
     return result
 
@@ -249,9 +249,7 @@ def _invoke(monkeypatch, command, args, repo, payload, calls=None, expect_exit=0
 def _search(monkeypatch, args, repo, payload, calls=None, expect_exit=0):
     """``search`` takes its repo as a trailing positional, not ``--path``."""
     monkeypatch.setattr(_ta, "run", _spy_run(payload, calls if calls is not None else []))
-    result = CliRunner(mix_stderr=False).invoke(
-        search_command, [*args, str(repo), "--no-workspace"]
-    )
+    result = CliRunner().invoke(search_command, [*args, str(repo), "--no-workspace"])
     assert result.exit_code == expect_exit, result.output + (result.stderr or "")
     return result
 
@@ -299,7 +297,7 @@ def test_a_plain_file_hit_does_not_carry_a_redundant_file_key():
 def test_a_bracketed_query_does_not_take_the_table_down(monkeypatch, repo):
     """A Table title is markup-parsed like any cell."""
     result = _search(monkeypatch, ["list[/bold]"], repo, CONCEPT_PAYLOAD)
-    assert "list[/bold]" in result.output
+    assert "list[/bold]" in result.stdout
 
 
 def test_the_snippet_is_not_clipped_in_the_payload():
@@ -385,7 +383,7 @@ def test_search_reaches_the_tool_with_the_mapped_mode(monkeypatch, repo, request
         return CONCEPT_PAYLOAD
 
     monkeypatch.setattr(_ta, "run", _run)
-    result = CliRunner(mix_stderr=False).invoke(
+    result = CliRunner().invoke(
         search_command, ["width", "--mode", requested, str(repo), "--no-workspace"]
     )
     assert result.exit_code == 0, result.output
@@ -406,8 +404,8 @@ def test_the_table_path_prints_the_note_and_the_grep_hint(monkeypatch, repo):
     a trimmed projection, and the one a projection test cannot see."""
     result = _search(monkeypatch, ["reslove_width", "--mode", "symbol"], repo,
                      SYMBOL_MISS_PAYLOAD)
-    assert "No indexed symbol exactly matches" in result.output
-    assert "Retry with" in result.output
+    assert "No indexed symbol exactly matches" in result.stdout
+    assert "Retry with" in result.stdout
 
 
 def test_the_grep_hint_is_rewritten_into_cli_vocabulary(monkeypatch, repo):
@@ -415,14 +413,14 @@ def test_the_grep_hint_is_rewritten_into_cli_vocabulary(monkeypatch, repo):
     payload = {**SYMBOL_MISS_PAYLOAD,
                "grep_hint": "Nothing matched; pipe the hit into get_symbol for its body."}
     result = _search(monkeypatch, ["x", "--mode", "symbol"], repo, payload)
-    assert "repowise symbol" in result.output
-    assert "get_symbol" not in result.output
+    assert "repowise symbol" in result.stdout
+    assert "get_symbol" not in result.stdout
 
 
 def test_the_table_path_lists_the_files_to_read(monkeypatch, repo):
     result = _search(monkeypatch, ["width"], repo, CONCEPT_PAYLOAD)
-    assert "Files to read" in result.output
-    assert "packages/cli/src/repowise/cli/output.py" in result.output
+    assert "Files to read" in result.stdout
+    assert "packages/cli/src/repowise/cli/output.py" in result.stdout
 
 
 def test_a_bracketed_snippet_is_not_eaten_by_rich(monkeypatch, repo):
@@ -431,30 +429,30 @@ def test_a_bracketed_snippet_is_not_eaten_by_rich(monkeypatch, repo):
     stray closing tag would raise MarkupError and take the command down."""
     payload = {"results": [{**PAGE_HIT, "snippet": "list[str] not dict[/x]"}]}
     result = _search(monkeypatch, ["width"], repo, payload)
-    assert "list[str]" in result.output
+    assert "list[str]" in result.stdout
 
 
 def test_symbol_mode_renders_the_symbol_table_not_the_page_table(monkeypatch, repo):
     result = _search(monkeypatch, ["resolve_console_width", "--mode", "symbol"], repo,
                      SYMBOL_PAYLOAD)
-    assert "Qualified Name" in result.output
-    assert "repowise.cli.output.resolve_console_width" in result.output
+    assert "Qualified Name" in result.stdout
+    assert "repowise.cli.output.resolve_console_width" in result.stdout
 
 
 def test_hybrid_renders_both_shapes(monkeypatch, repo):
     result = _search(monkeypatch, ["where is it", "--mode", "hybrid"], repo, HYBRID_PAYLOAD)
-    assert "Qualified Name" in result.output, "the symbol group is missing"
-    assert "Snippet" in result.output, "the page group is missing"
+    assert "Qualified Name" in result.stdout, "the symbol group is missing"
+    assert "Snippet" in result.stdout, "the page group is missing"
 
 
 def test_json_emits_one_parseable_document(monkeypatch, repo):
     result = _search(monkeypatch, ["width", "--format", "json"], repo, CONCEPT_PAYLOAD)
-    assert json.loads(result.output)["results"][0]["path"].endswith("output.py")
+    assert json.loads(result.stdout)["results"][0]["path"].endswith("output.py")
 
 
 def test_full_emits_the_raw_tool_dict(monkeypatch, repo):
     result = _search(monkeypatch, ["width", "--full"], repo, CONCEPT_PAYLOAD)
-    payload = json.loads(result.output)
+    payload = json.loads(result.stdout)
     assert payload["results"][0]["page_id"] == PAGE_HIT["page_id"]
     assert payload["_meta"]["timing_ms"] == 12.5
 
@@ -465,27 +463,27 @@ def test_an_error_payload_emits_a_document_and_exits_one(monkeypatch, repo):
     payload = {"error": "no index yet", "remedy": "Run 'repowise init'."}
     result = _search(monkeypatch, ["width", "--format", "json"], repo, payload,
                      expect_exit=1)
-    assert json.loads(result.output)["error"] == "no index yet"
+    assert json.loads(result.stdout)["error"] == "no index yet"
 
 
 def test_full_also_exits_one_on_an_error(monkeypatch, repo):
     """``--full`` is exactly the spelling a script reaches for."""
     result = _search(monkeypatch, ["width", "--full"], repo, {"error": "no index yet"},
                      expect_exit=1)
-    assert json.loads(result.output)["error"] == "no index yet"
+    assert json.loads(result.stdout)["error"] == "no index yet"
 
 
 def test_no_results_still_emits_a_document_and_says_so(monkeypatch, repo):
     result = _search(monkeypatch, ["zzz", "--format", "json"], repo, {"results": []})
-    assert json.loads(result.output) == {"query": "zzz", "mode": "concept", "results": []}
+    assert json.loads(result.stdout) == {"query": "zzz", "mode": "concept", "results": []}
 
 
 def test_an_unindexed_repo_emits_a_document(monkeypatch, tmp_path):
-    result = CliRunner(mix_stderr=False).invoke(
+    result = CliRunner().invoke(
         search_command, ["q", str(tmp_path), "--no-workspace", "--format", "json"]
     )
     assert result.exit_code == 0
-    assert json.loads(result.output) == {"query": "q", "mode": "concept", "results": []}
+    assert json.loads(result.stdout) == {"query": "q", "mode": "concept", "results": []}
 
 
 # --------------------------------------------------------------------------
@@ -671,7 +669,7 @@ def test_risk_without_a_target_still_scores_a_revspec(monkeypatch, repo):
         "repowise.cli.commands.risk_cmd.score_live_change",
         lambda *a, **k: called.append(a) or (_ for _ in ()).throw(RuntimeError("boom")),
     )
-    result = CliRunner(mix_stderr=False).invoke(risk_command, ["HEAD", "--path", str(repo)])
+    result = CliRunner().invoke(risk_command, ["HEAD", "--path", str(repo)])
     assert called, "a bare `repowise risk` must still reach the change scorer"
     assert result.exit_code != 0  # our own boom
 
@@ -710,7 +708,7 @@ def test_risk_table_renders_the_directive_first(monkeypatch, repo):
          "--changed-file", "packages/core/src/repowise/core/pipeline/persist.py"],
         repo, PR_RISK_PAYLOAD,
     )
-    out = result.output
+    out = result.stdout
     # Unconditional: a guarded `assert A < B if cond else True` degrades to
     # `assert True` the moment rich wraps the line the guard looked for.
     assert out.index("Directive") < out.index("Co-changes with")
@@ -729,13 +727,13 @@ def test_risk_table_normalises_the_ownership_share(monkeypatch, repo):
     git-metadata path filled it in; printing it raw shows a sole owner
     as "0.75%"."""
     result = _invoke(monkeypatch, risk_command, ["--target", "a.py"], repo, RISK_PAYLOAD)
-    assert "75%" in result.output
-    assert "0.75%" not in result.output
+    assert "75%" in result.stdout
+    assert "0.75%" not in result.stdout
 
 
 def test_risk_table_prints_the_security_signal(monkeypatch, repo):
     result = _invoke(monkeypatch, risk_command, ["--target", "a.py"], repo, RISK_PAYLOAD)
-    assert "sql-injection" in result.output
+    assert "sql-injection" in result.stdout
 
 
 def test_risk_names_a_target_the_tool_returned_no_card_for(monkeypatch, repo):
@@ -743,21 +741,21 @@ def test_risk_names_a_target_the_tool_returned_no_card_for(monkeypatch, repo):
     nothing reads as "clean"; it is not, it is "not assessed"."""
     result = _invoke(monkeypatch, risk_command, ["--target", "vendor/x.py"], repo,
                      {"targets": {}, "_meta": META})
-    assert "vendor/x.py" in result.output
-    assert "not indexed" in result.output
+    assert "vendor/x.py" in result.stdout
+    assert "not indexed" in result.stdout
 
 
 def test_risk_target_json_is_one_document(monkeypatch, repo):
     result = _invoke(monkeypatch, risk_command, ["--target", "a.py", "--format", "json"],
                      repo, RISK_PAYLOAD)
-    targets = json.loads(result.output)["targets"]
+    targets = json.loads(result.stdout)["targets"]
     assert list(targets) == ["packages/core/src/repowise/core/pipeline/persist.py"]
 
 
 def test_risk_target_error_exits_one(monkeypatch, repo):
     result = _invoke(monkeypatch, risk_command, ["--target", "a.py", "--format", "json"],
                      repo, {"error": "no index yet"}, expect_exit=1)
-    assert json.loads(result.output)["error"] == "no index yet"
+    assert json.loads(result.stdout)["error"] == "no index yet"
 
 
 def test_risk_projection_keeps_the_reviewers_nothing_else_names():
@@ -771,18 +769,18 @@ def test_risk_projection_keeps_the_reviewers_nothing_else_names():
 
 def test_risk_table_renders_the_health_and_coverage_it_keeps(monkeypatch, repo):
     result = _invoke(monkeypatch, risk_command, ["--target", "a.py"], repo, RISK_PAYLOAD)
-    assert "health 3.2/10" in result.output
-    assert "coverage 61%" in result.output
+    assert "health 3.2/10" in result.stdout
+    assert "coverage 61%" in result.stdout
     # Keyed ``biomarker_type``; a generic key guess prints the whole dict repr.
-    assert "nested_complexity (high) in persist_analysis" in result.output
-    assert "'biomarker_type':" not in result.output
+    assert "nested_complexity (high) in persist_analysis" in result.stdout
+    assert "'biomarker_type':" not in result.stdout
 
 
 def test_risk_table_keeps_the_fix_counts_on_top_symbols(monkeypatch, repo):
     """``top_symbols`` is a {name: count} dict; iterating it bare prints the
     names and throws the counts away."""
     result = _invoke(monkeypatch, risk_command, ["--target", "a.py"], repo, RISK_PAYLOAD)
-    assert "_prune_stale_file_rows (x9)" in result.output
+    assert "_prune_stale_file_rows (x9)" in result.stdout
 
 
 def test_risk_full_on_a_revspec_is_json_not_a_table(monkeypatch, repo):
@@ -797,11 +795,11 @@ def test_risk_full_on_a_revspec_is_json_not_a_table(monkeypatch, repo):
         "repowise.cli.commands.risk_cmd.score_live_change",
         lambda *a, **k: _FakeChangeResult(),
     )
-    result = CliRunner(mix_stderr=False).invoke(
+    result = CliRunner().invoke(
         risk_command, ["HEAD", "--path", str(repo), "--full", "--baseline", "0"]
     )
     assert result.exit_code == 0, result.output + (result.stderr or "")
-    assert json.loads(result.output) == {"risk": 4.2}
+    assert json.loads(result.stdout) == {"risk": 4.2}
     assert ChangeRiskResult is not None  # import is the contract this leans on
 
 
@@ -829,7 +827,5 @@ class _FakeChangeResult:
 def test_changed_file_without_a_target_is_a_usage_error(monkeypatch, repo):
     """It is a modifier on ``--target``, and silently scoring HEAD instead
     would answer a question nobody asked."""
-    result = CliRunner(mix_stderr=False).invoke(
-        risk_command, ["--changed-file", "a.py", "--path", str(repo)]
-    )
+    result = CliRunner().invoke(risk_command, ["--changed-file", "a.py", "--path", str(repo)])
     assert result.exit_code == 2

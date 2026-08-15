@@ -96,6 +96,7 @@ def _setup_embedder() -> None:
     has_gemini = bool(os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"))
     has_openai = bool(os.environ.get("OPENAI_API_KEY"))
     has_openrouter = bool(os.environ.get("OPENROUTER_API_KEY"))
+    has_voxell = bool(os.environ.get("VOXELL_API_KEY"))
 
     console.print(
         "\n[bold]Chat & search require an embedder.[/bold] "
@@ -122,6 +123,11 @@ def _setup_embedder() -> None:
     else:
         options.append("openrouter")
         labels.append("[3] openrouter  [dim]needs OPENROUTER_API_KEY[/dim]")
+    options.append("voxell")
+    if has_voxell:
+        labels.append("[4] voxell      [green]✓ key set[/green]")
+    else:
+        labels.append("[4] voxell      [dim]needs VOXELL_API_KEY[/dim]")
     options.append("skip")
     labels.append(f"[{len(options)}] skip        [dim]no chat/search[/dim]")
 
@@ -129,7 +135,9 @@ def _setup_embedder() -> None:
         console.print(f"  {label}")
     console.print()
 
-    default = "1" if (has_gemini or has_openai) else "3"
+    default = (
+        "1" if (has_gemini or has_openai) else ("4" if has_voxell and not has_openrouter else "3")
+    )
     raw = click.prompt("  Select", default=default).strip()
 
     # Map number or name to option.
@@ -172,6 +180,11 @@ def _get_or_prompt_api_key(embedder: str) -> str:
         if key:
             return key
         return click.prompt("  OPENROUTER_API_KEY", default="", show_default=False).strip()
+    if embedder == "voxell":
+        key = os.environ.get("VOXELL_API_KEY", "")
+        if key:
+            return key
+        return click.prompt("  VOXELL_API_KEY", default="", show_default=False).strip()
     return ""
 
 
@@ -184,6 +197,8 @@ def _set_api_key_env(embedder: str, key: str) -> None:
         os.environ.setdefault("OPENAI_API_KEY", key)
     elif embedder == "openrouter":
         os.environ.setdefault("OPENROUTER_API_KEY", key)
+    elif embedder == "voxell":
+        os.environ.setdefault("VOXELL_API_KEY", key)
 
 
 def _save_global_embedder(embedder: str, api_key: str) -> None:

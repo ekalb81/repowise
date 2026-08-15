@@ -180,6 +180,27 @@ def _run_repo_checks(
     config_detail = "All required API keys configured" if config_ok else "; ".join(config_warnings)
     checks.append(_check("Provider config", config_ok, config_detail))
 
+    # 6a. Is the shell overriding what the repo saved? Not a failure — the
+    # precedence is intentional — but the one state where every other check
+    # here passes and the repo still talks to the wrong endpoint with the
+    # wrong credential.
+    try:
+        from repowise.core.repo_config import env_conflicts
+
+        contested = env_conflicts(repo_path)
+    except Exception as e:
+        checks.append(_check("Env vs .repowise/.env", True, f"Could not check: {e}"))
+    else:
+        checks.append(
+            _check(
+                "Env vs .repowise/.env",
+                True,
+                "No overrides"
+                if not contested
+                else f"Shell overrides saved {', '.join(contested)} (exported value wins)",
+            )
+        )
+
     # 6b. Hosted account (informational: signed out is not a failure).
     try:
         from repowise.cli.platform import auth, credentials

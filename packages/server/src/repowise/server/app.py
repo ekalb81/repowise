@@ -95,6 +95,7 @@ def _build_embedder():
         gemini     — GeminiEmbedder via GEMINI_API_KEY / GOOGLE_API_KEY env var
         openai     — OpenAIEmbedder via OPENAI_API_KEY env var
         openrouter — OpenRouterEmbedder via OPENROUTER_API_KEY env var
+        voxell     — VoxellEmbedder via VOXELL_API_KEY env var
     """
     name = os.environ.get("REPOWISE_EMBEDDER", "mock").lower()
     if name == "ollama":
@@ -121,8 +122,14 @@ def _build_embedder():
 
         model = os.environ.get("REPOWISE_EMBEDDING_MODEL", "google/gemini-embedding-001")
         return OpenRouterEmbedder(model=model)
+    if name == "voxell":
+        from repowise.core.providers.embedding.voxell import VoxellEmbedder
+
+        model = os.environ.get("REPOWISE_EMBEDDING_MODEL", "forge-turbo")
+        return VoxellEmbedder(model=model)
     logger.warning(
-        "embedder.mock_active: set REPOWISE_EMBEDDER=gemini, openai, openrouter, or ollama for real RAG"
+        "embedder.mock_active: set REPOWISE_EMBEDDER=gemini, openai, openrouter, voxell, "
+        "or ollama for real RAG"
     )
     return KeylessEmbedder()
 

@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from repowise.core.providers.embedding.base import Embedder
 
 from ..search import SearchResult
-from ._base import VectorStore, iter_embed_chunks
+from ._base import VectorStore, embed_chunks_concurrently
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -81,9 +81,14 @@ class PgVectorStore(VectorStore):
         stmt = sa_text("UPDATE wiki_pages SET embedding = CAST(:emb AS vector) WHERE id = :pid")
         # Chunked: one embedder request per slice (a whole generation level
         # in one request blew OpenAI's 300k-token cap), then one executemany
-        # round-trip per slice.
-        for chunk, texts in iter_embed_chunks(items):
-            vectors = await self._embedder.embed(texts)
+        # round-trip per slice. The embedder requests run concurrently; the
+        # database round-trips stay serial and in chunk order, and the first
+        # failure still aborts the rest exactly as it did when the embedding
+        # was inline.
+        for chunk, vectors, exc in await embed_chunks_concurrently(self._embedder, items):
+            if exc is not None:
+                raise exc
+            assert vectors is not None
             params = [
                 {"emb": _encode(vector), "pid": page_id}
                 for (page_id, _text, _meta), vector in zip(chunk, vectors, strict=True)

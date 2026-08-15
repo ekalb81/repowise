@@ -77,6 +77,8 @@ def resolve_embedder(embedder_flag: str | None, env: Mapping[str, str] | None = 
         return "openai"
     if _get("OPENROUTER_API_KEY"):
         return "openrouter"
+    if _get("VOXELL_API_KEY"):
+        return "voxell"
     if _get("OLLAMA_EMBEDDING_MODEL"):
         return "ollama"
     return "mock"

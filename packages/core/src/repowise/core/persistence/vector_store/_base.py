@@ -8,8 +8,10 @@ re-exported from the package ``__init__`` so the historical import path
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
+import os
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
 
@@ -18,12 +20,15 @@ from ..search import SearchResult
 
 __all__ = [
     "EMBED_BATCH_MAX_ITEMS",
+    "EMBED_CONCURRENCY_DEFAULT",
     "EMBED_TEXT_MAX_CHARS",
     "STORED_SNIPPET_CHARS",
     "VectorStore",
     "cosine_similarity",
+    "embed_chunks_concurrently",
     "embed_item",
     "iter_embed_chunks",
+    "resolve_embed_concurrency",
 ]
 
 logger = logging.getLogger(__name__)
@@ -36,6 +41,32 @@ logger = logging.getLogger(__name__)
 # under the cap and inside the embedder adapters' request timeouts
 # (a 16-page chunk measured at 0.6s against OpenAI).
 EMBED_BATCH_MAX_ITEMS = 16
+
+# How many embedder requests may be in flight at once.
+#
+# Serial by default, and the default is the measurement rather than caution.
+# The obvious theory was that a reindex is rate-limit-bound and should fan out:
+# a 4,067-page run issued ~255 requests over 86 minutes, about 3 per minute
+# against an allowance of 100, so 33x of the limit sat unused.
+#
+# Measured against Voxell on real page chunks (16 pages, ~150 KB each), that
+# theory is wrong — the same 4 chunks took:
+#
+#     concurrency=1   23.5s, 23.2s
+#     concurrency=2   22.1s
+#     concurrency=4   67.7s, 126.9s
+#
+# No gain at 2 and a cliff at 4. The constraint is the provider's per-account
+# compute, not its request budget: parallel requests contend for one pool and
+# each takes proportionally longer. Defaulting to anything above 1 would have
+# made a Voxell reindex several times slower.
+#
+# The knob stays because that finding is per-provider, not universal — a
+# backend that really does serve requests in parallel should be able to use
+# it. Raise REPOWISE_EMBED_CONCURRENCY only with a measurement like the one
+# above; no provider has been measured to benefit yet.
+EMBED_CONCURRENCY_DEFAULT = 1
+
 
 # Per-input cap (~7.5k tokens): embedding models reject a single input past
 # ~8,192 tokens, and one oversized page must not sink its whole chunk.
@@ -50,6 +81,65 @@ EMBED_TEXT_MAX_CHARS = 30_000
 # store raised its ceiling while the recipe still handed it 600 characters,
 # and on the paths that passed no content at all, an empty string.
 STORED_SNIPPET_CHARS = 2_000
+
+
+def resolve_embed_concurrency(override: int | None = None) -> int:
+    """Resolve how many embedder requests may run at once.
+
+    Precedence: explicit argument, then ``REPOWISE_EMBED_CONCURRENCY``, then
+    :data:`EMBED_CONCURRENCY_DEFAULT`. Always at least 1, so a malformed or
+    hostile value degrades to the old serial behaviour instead of to zero
+    (which would deadlock the semaphore).
+    """
+    if override is not None:
+        return max(1, override)
+    raw = os.environ.get("REPOWISE_EMBED_CONCURRENCY", "").strip()
+    if raw:
+        try:
+            return max(1, int(raw))
+        except ValueError:
+            logger.warning(
+                "REPOWISE_EMBED_CONCURRENCY=%r is not an integer; using %d",
+                raw,
+                EMBED_CONCURRENCY_DEFAULT,
+            )
+    return EMBED_CONCURRENCY_DEFAULT
+
+
+async def embed_chunks_concurrently(
+    embedder: object,
+    items: list[tuple[str, str, dict]],
+    *,
+    concurrency: int | None = None,
+) -> list[tuple[list[tuple[str, str, dict]], list[list[float]] | None, Exception | None]]:
+    """Embed every chunk of *items*, up to *concurrency* requests at once.
+
+    Returns one ``(chunk, vectors, error)`` triple per chunk **in chunk
+    order**, with exactly one of ``vectors`` / ``error`` set. Order is
+    preserved so callers can keep writing serially: the concurrency belongs to
+    the network round-trip, not to the store's write path, and a backend that
+    creates a table on first write must not race itself doing it.
+
+    Errors are returned rather than raised so each backend keeps the failure
+    semantics it already had — LanceDB isolates and counts them, the others
+    stop at the first one.
+    """
+    chunks = list(iter_embed_chunks(items))
+    if not chunks:
+        return []
+
+    limit = asyncio.Semaphore(resolve_embed_concurrency(concurrency))
+
+    async def _one(
+        chunk: list[tuple[str, str, dict]], texts: list[str]
+    ) -> tuple[list[tuple[str, str, dict]], list[list[float]] | None, Exception | None]:
+        async with limit:
+            try:
+                return chunk, await embedder.embed(texts), None  # type: ignore[attr-defined]
+            except Exception as exc:  # returned, not raised — see docstring
+                return chunk, None, exc
+
+    return await asyncio.gather(*(_one(chunk, texts) for chunk, texts in chunks))
 
 
 def embed_item(
@@ -211,8 +301,13 @@ class VectorStore(ABC):
         if not texts:
             return []
         out: list[list[float]] = []
-        for _chunk, capped_texts in iter_embed_chunks([("", t, {}) for t in texts]):
-            out.extend(await embedder.embed(capped_texts))
+        for _chunk, vectors, exc in await embed_chunks_concurrently(
+            embedder, [("", t, {}) for t in texts]
+        ):
+            if exc is not None:
+                raise exc
+            assert vectors is not None
+            out.extend(vectors)
         return out
 
     async def search_by_vector(

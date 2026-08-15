@@ -6,6 +6,7 @@ and runtime registration for community embedders.
 Built-in embedders:
     openai  → OpenAIEmbedder  (text-embedding-3-small default)
     gemini  → GeminiEmbedder  (gemini-embedding-001 default)
+    voxell  → VoxellEmbedder  (forge-turbo default)
     mock    → MockEmbedder    (testing only, zero dependencies)
 
 Custom embedder registration:
@@ -28,6 +29,7 @@ _BUILTIN_EMBEDDERS: dict[str, tuple[str, str]] = {
     "gemini": ("repowise.core.providers.embedding.gemini", "GeminiEmbedder"),
     "ollama": ("repowise.core.providers.embedding.ollama", "OllamaEmbedder"),
     "openrouter": ("repowise.core.providers.embedding.openrouter", "OpenRouterEmbedder"),
+    "voxell": ("repowise.core.providers.embedding.voxell", "VoxellEmbedder"),
     "mock": ("repowise.core.providers.embedding.base", "KeylessEmbedder"),
 }
 
