@@ -5,7 +5,7 @@ from __future__ import annotations
 from repowise.core.providers.embedding.base import Embedder
 
 from ..search import _SNIPPET_LEN, SearchResult, snippet_around
-from ._base import STORED_SNIPPET_CHARS, VectorStore, iter_embed_chunks
+from ._base import STORED_SNIPPET_CHARS, VectorStore, embed_chunks_concurrently
 
 __all__ = ["STORED_SNIPPET_CHARS", "LanceDBVectorStore"]
 
@@ -198,24 +198,33 @@ class LanceDBVectorStore(VectorStore):
         and silently lost every file-page embedding. A failed chunk no
         longer sinks the rest; the summary error is raised at the end so
         callers still see the loss.
+
+        The requests run concurrently (see
+        :func:`embed_chunks_concurrently`) because they are network-bound and
+        the provider limits were never the constraint. The **writes** stay
+        serial and in chunk order: ``_ensure_table`` creates the table from
+        the first vector it sees, and two chunks racing to do that is a
+        corrupt store, not a faster one.
         """
         if not items:
             return
         await self._ensure_connected()
         failed = 0
         last_exc: Exception | None = None
-        for chunk, texts in iter_embed_chunks(items):
+        for chunk, vectors, exc in await embed_chunks_concurrently(self._embedder, items):
             try:
-                vectors = await self._embedder.embed(texts)
+                if exc is not None:
+                    raise exc
+                assert vectors is not None
                 await self._ensure_table(vectors[0])
                 rows = [
                     self._row(page_id, vector, {"content": text, **metadata})
                     for (page_id, text, metadata), vector in zip(chunk, vectors, strict=True)
                 ]
                 await self._upsert_rows(rows)
-            except Exception as exc:  # isolate per chunk
+            except Exception as write_exc:  # isolate per chunk
                 failed += len(chunk)
-                last_exc = exc
+                last_exc = write_exc
         if failed:
             raise RuntimeError(
                 f"embed_batch: {failed}/{len(items)} items failed to embed"

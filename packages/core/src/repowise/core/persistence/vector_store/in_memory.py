@@ -5,7 +5,7 @@ from __future__ import annotations
 from repowise.core.providers.embedding.base import Embedder
 
 from ..search import SearchResult
-from ._base import VectorStore, cosine_similarity, iter_embed_chunks
+from ._base import VectorStore, cosine_similarity, embed_chunks_concurrently
 
 __all__ = ["InMemoryVectorStore"]
 
@@ -32,8 +32,10 @@ class InMemoryVectorStore(VectorStore):
         # real embedder with real request limits.
         if not items:
             return
-        for chunk, texts in iter_embed_chunks(items):
-            vectors = await self._embedder.embed(texts)
+        for chunk, vectors, exc in await embed_chunks_concurrently(self._embedder, items):
+            if exc is not None:
+                raise exc
+            assert vectors is not None
             for (page_id, _text, metadata), vector in zip(chunk, vectors, strict=True):
                 self._store[page_id] = (vector, dict(metadata))
 
