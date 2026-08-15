@@ -260,6 +260,13 @@ def search_command(
     if len(repo_paths) == 1:
         repo_path = repo_paths[0]
         ensure_repowise_dir(repo_path)
+        # Every other command that builds an embedder loads the repo's saved
+        # keys first (init, generate, update, reindex, restyle, serve, mcp).
+        # Without it here, a repo whose embedder key lives only in
+        # .repowise/.env indexes fine and then answers `search --mode semantic`
+        # from keyless vectors — the one command that reads the index was the
+        # one that could not authenticate to query it.
+        _load_repo_env(repo_path)
         payload = _run_search(repo_path, query, limit, tool_mode)
         if full:
             _ta.emit_full(payload)
@@ -275,6 +282,17 @@ def search_command(
         return
 
     _fan_out(repo_paths, query, limit, mode, tool_mode, fmt, full, notices)
+
+
+def _load_repo_env(repo_path) -> None:
+    """Load ``<repo>/.repowise/.env`` so a saved embedder key is available.
+
+    Never overwrites an existing environment variable, matching every other
+    command's use of it.
+    """
+    from repowise.cli.ui import load_dotenv
+
+    load_dotenv(repo_path)
 
 
 def _run_search(repo_path, query: str, limit: int, tool_mode: str) -> dict:
@@ -341,6 +359,7 @@ def _fan_out(
     raw: dict[str, dict] = {}
     failures: list[str] = []
     for rp in repo_paths:
+        _load_repo_env(rp)
         payload = _run_search(rp, query, limit, tool_mode)
         raw[rp.name] = payload
         if payload.get("error"):
