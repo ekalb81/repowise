@@ -267,12 +267,36 @@ Embeddings power semantic search via the vector index. The embedder is separate 
 |----------|---------|-------|
 | `gemini` | `GEMINI_API_KEY` | Default when key is present |
 | `openai` | `OPENAI_API_KEY` | OpenAI text-embedding-3-small |
+| `openrouter` | `OPENROUTER_API_KEY` | OpenAI-compatible, google/gemini-embedding-001 |
+| `voxell` | `VOXELL_API_KEY` | Voxell Forge, `forge-turbo` (1024 dims) |
+| `ollama` | `OLLAMA_BASE_URL` | Local models, `embeddinggemma` default |
 | `mock` | — | Dummy embeddings, no semantic search |
 
 ```bash
 repowise init --embedder openai
 repowise reindex --embedder gemini   # Switch embedder and rebuild index
 ```
+
+### Voxell Forge
+
+Voxell exposes an OpenAI-compatible endpoint at `https://api.voxell.ai/v1`:
+
+```bash
+export VOXELL_API_KEY="vf_..."
+repowise init --embedder voxell
+```
+
+Models and their widths: `forge-turbo` (1024), `forge-pro` (2560),
+`forge-ultra-4k` (4096), plus `text-embedding-3-small` (1536) and
+`text-embedding-3-large` (3072) served as aliases. Select one with
+`REPOWISE_EMBEDDING_MODEL`, and point at a different deployment with
+`VOXELL_BASE_URL`.
+
+This is a separate embedder rather than `openai` with an `OPENAI_BASE_URL`
+override because the two collide on a machine that also holds a real OpenAI
+key: repowise's `.env` loader never overwrites an already-set variable, so a
+shell carrying `OPENAI_API_KEY` sends that key to Voxell and gets back a 401
+naming neither side of the mix-up.
 
 ---
 

@@ -61,6 +61,8 @@ def resolve_embedder(embedder_flag: str | None) -> str:
         return "openai"
     if os.environ.get("OPENROUTER_API_KEY"):
         return "openrouter"
+    if os.environ.get("VOXELL_API_KEY"):
+        return "voxell"
     if os.environ.get("OLLAMA_EMBEDDING_MODEL"):
         return "ollama"
     return "mock"
