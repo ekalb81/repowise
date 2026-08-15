@@ -84,7 +84,11 @@ dependencies = [
     # Vector search (LanceDB — pure Python wheel)
     "lancedb>=0.12,<1",
     # CLI
-    "click>=8.1,<9",
+    # 8.2 removed CliRunner(mix_stderr=...) and made Result.output the mixed
+    # stream rather than a stdout proxy. Supporting 8.1 alongside it meant every
+    # CliRunner test carrying a compat shim and two different meanings for
+    # result.output. The floor is 8.2 so the tests can name one.
+    "click>=8.2,<9",
     "rich>=13,<14",
     "watchdog>=4,<5",
     # Server

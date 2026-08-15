@@ -266,9 +266,7 @@ def _spy_run(payload: dict, calls: list):
 
 def _invoke(monkeypatch, command, args, repo, payload, calls=None, expect_exit=0):
     monkeypatch.setattr(_ta, "run", _spy_run(payload, calls if calls is not None else []))
-    result = CliRunner(mix_stderr=False).invoke(
-        command, [*args, "--path", str(repo), "--no-workspace"]
-    )
+    result = CliRunner().invoke(command, [*args, "--path", str(repo), "--no-workspace"])
     assert result.exit_code == expect_exit, result.output + (result.stderr or "")
     return result
 
@@ -668,9 +666,7 @@ def test_the_command_builds_the_coroutine_of_the_tool_it_names(
 def test_an_unindexed_repo_is_refused_before_any_tool_runs(monkeypatch, tmp_path):
     calls: list = []
     monkeypatch.setattr(_ta, "run", _spy_run({}, calls))
-    result = CliRunner(mix_stderr=False).invoke(
-        ask_command, ["q?", "--path", str(tmp_path), "--no-workspace"]
-    )
+    result = CliRunner().invoke(ask_command, ["q?", "--path", str(tmp_path), "--no-workspace"])
     assert result.exit_code != 0
     assert "not indexed" in (result.stderr or result.output)
     assert calls == []
@@ -692,7 +688,7 @@ def test_logs_are_silenced_at_every_format_not_only_the_machine_ones(
         lambda: silenced.append(True),
     )
     monkeypatch.setattr("repowise.cli.tool_bridge.call_tool", lambda p, f, t: {"_meta": {}})
-    result = CliRunner(mix_stderr=False).invoke(
+    result = CliRunner().invoke(
         ask_command, ["q?", *args, "--path", str(repo), "--no-workspace"]
     )
     assert result.exit_code == 0, result.output

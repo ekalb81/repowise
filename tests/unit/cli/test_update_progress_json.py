@@ -109,23 +109,11 @@ class TestJsonProgressEmitter:
         ]
 
 
-def _split_output_runner() -> CliRunner:
-    """CliRunner with stdout and stderr separated, across click versions.
-
-    click < 8.2 mixes the streams unless ``mix_stderr=False``; click 8.2
-    removed the parameter and separates them by default.
-    """
-    try:
-        return CliRunner(mix_stderr=False)  # type: ignore[call-arg]
-    except TypeError:
-        return CliRunner()
-
-
 class TestUpdateProgressJsonCli:
     """CliRunner smoke tests against the cheap no-provider/no-LLM early-exit paths."""
 
     def test_no_prior_sync_emits_start_then_error(self):
-        runner = _split_output_runner()
+        runner = CliRunner()
         with tempfile.TemporaryDirectory() as td:
             os.makedirs(os.path.join(td, ".repowise"))
             result = runner.invoke(cli, ["update", td, "--progress", "json"])
@@ -140,7 +128,7 @@ class TestUpdateProgressJsonCli:
             json.loads(line)  # would raise if any non-JSON line leaked through
 
     def test_up_to_date_emits_start_stage_done(self):
-        runner = _split_output_runner()
+        runner = CliRunner()
         with tempfile.TemporaryDirectory() as td:
             os.makedirs(os.path.join(td, ".repowise"))
             state_path = os.path.join(td, ".repowise", "state.json")
@@ -169,7 +157,7 @@ class TestUpdateProgressJsonCli:
 
     def test_rich_mode_is_unaffected_default(self):
         """Default --progress rich must not emit any JSON lines."""
-        runner = _split_output_runner()
+        runner = CliRunner()
         with tempfile.TemporaryDirectory() as td:
             os.makedirs(os.path.join(td, ".repowise"))
             result = runner.invoke(cli, ["update", td])

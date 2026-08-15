@@ -74,22 +74,6 @@ def _params(cmd) -> dict[str, click.Parameter]:
     return {opt: p for p in cmd.params for opt in p.opts}
 
 
-def _split_runner() -> CliRunner:
-    """A runner that keeps stderr out of ``result.stdout``.
-
-    The whole point of the notice diversion is that the two streams are
-    separate, so a runner that merges them cannot see whether it worked.
-    ``mix_stderr`` exists on click 8.1 and was removed in 8.2, where the
-    streams are already separate — hence the signature check rather than a
-    version comparison.
-    """
-    import inspect
-
-    if "mix_stderr" in inspect.signature(CliRunner.__init__).parameters:
-        return CliRunner(mix_stderr=False)
-    return CliRunner()
-
-
 # ---------------------------------------------------------------------------
 # One convention
 # ---------------------------------------------------------------------------
@@ -139,7 +123,7 @@ def test_legacy_alias_actually_selects_json(module: str, attr: str, args, tmp_pa
     contract rather than a populated payload.
     """
     cmd = _load(module, attr)
-    runner = _split_runner()
+    runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
         result = runner.invoke(cmd, args)
     if result.exit_code == 0 and result.stdout.strip():
@@ -249,7 +233,9 @@ def test_whats_new_json_carries_every_selected_release() -> None:
 
     result = CliRunner().invoke(whats_new_command, ["--all", "--format", "json"])
     assert result.exit_code == 0
-    payload = json.loads(result.output)
+    # stdout, not output: on click 8.2+ ``output`` interleaves stderr, so any
+    # warning the command grows would land inside the document being parsed.
+    payload = json.loads(result.stdout)
     assert len(payload["releases"]) > 5
     assert all("version" in r and "sections" in r for r in payload["releases"])
     # The cap that matters is the 8-bullet one, so at least one release has to
@@ -268,7 +254,7 @@ def test_status_json_reports_absence_rather_than_only_a_notice(tmp_path) -> None
     """
     from repowise.cli.commands.status_cmd import status_command
 
-    result = _split_runner().invoke(
+    result = CliRunner().invoke(
         status_command, [str(tmp_path), "--no-workspace", "--format", "json"]
     )
     assert result.exit_code == 0
@@ -296,7 +282,7 @@ def test_corrections_json_write_does_not_prune_when_the_scan_found_nothing(
         corrections_cmd, "_write_managed_blocks", lambda *a, **k: wrote.append(a)
     )
 
-    result = _split_runner().invoke(
+    result = CliRunner().invoke(
         corrections_cmd.corrections_command,
         [str(tmp_path), "--write", "--format", "json"],
     )
@@ -398,7 +384,7 @@ def test_security_scan_json_without_history_still_emits_a_document() -> None:
     """And the human notice that accompanies it is on stderr, not in the payload."""
     from repowise.cli.commands.security_cmd import security_scan
 
-    result = _split_runner().invoke(security_scan, ["--format", "json"])
+    result = CliRunner().invoke(security_scan, ["--format", "json"])
     assert result.exit_code == 0
     assert json.loads(result.stdout) == {
         "scanned": False,
