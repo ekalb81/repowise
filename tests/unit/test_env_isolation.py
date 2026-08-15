@@ -11,7 +11,28 @@ from __future__ import annotations
 
 import os
 
+import pytest
+
 from repowise.core.repo_config import env_conflicts, save_repo_env_key
+
+
+@pytest.fixture(autouse=True)
+def _restore_environ():
+    """Undo what ``load_dotenv`` writes.
+
+    The tests below call it on purpose, and it merges into ``os.environ``
+    directly — which ``monkeypatch`` does not track, so the keys survive the
+    test that set them. A leaked ``VOXELL_API_KEY`` then reorders embedder
+    auto-detection for every test that runs afterwards, which surfaces far
+    away as ``resolve_embedder`` returning voxell where the case expects
+    ollama or mock.
+    """
+    before = dict(os.environ)
+    try:
+        yield
+    finally:
+        os.environ.clear()
+        os.environ.update(before)
 
 # ---------------------------------------------------------------------------
 # The suite is isolated from the developer's environment
