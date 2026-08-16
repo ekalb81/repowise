@@ -87,6 +87,34 @@ async def reset_workspace_stale_jobs(app_state) -> int:
     return reset_count
 
 
+#: Why the last :func:`_build_embedder` call did or did not get a real backend.
+#: Read by the lifespan onto ``app.state`` so ``/api/health`` can report it —
+#: a container serving mock vectors against a real index looks healthy from
+#: the outside and answers every search with nothing.
+_embedder_status: dict[str, object] = {"name": "mock", "degraded": False, "reason": None}
+
+
+def _embedder_api_key(name: str) -> str | None:
+    """The configured embedder's key, from wherever it was persisted.
+
+    Reading only ``os.environ`` is what this used to do, and it is the reason
+    ``repowise serve`` could abort at startup on a repo whose key lives in
+    ``.repowise/.env`` or ``~/.repowise/config.yaml``. The MCP server already
+    resolves those; this reuses its resolver rather than growing a second one.
+
+    The CLI's ``providers.keys`` resolver is the richer implementation, but the
+    server cannot import the CLI package, which is the same ceiling that module
+    documents.
+    """
+    try:
+        from repowise.server.mcp_server._server import _persisted_embedder_key
+
+        return _persisted_embedder_key(name)
+    except Exception:  # a diagnostic path must never be the thing that fails
+        logger.debug("embedder_key_lookup_failed", exc_info=True)
+        return None
+
+
 def _build_embedder():
     """Build an embedder from REPOWISE_EMBEDDER env var (default: mock).
 
@@ -96,8 +124,39 @@ def _build_embedder():
         openai     — OpenAIEmbedder via OPENAI_API_KEY env var
         openrouter — OpenRouterEmbedder via OPENROUTER_API_KEY env var
         voxell     — VoxellEmbedder via VOXELL_API_KEY env var
+
+    Never raises. A configured backend that cannot be built degrades to keyless
+    vectors and says so, for the reason the full-text index below it degrades:
+    a server that refuses to start serves no wiki, no graph and no health
+    pages either, and the container it is in crash-loops on a wall of
+    traceback. ``/api/health`` reports the degradation instead.
     """
     name = os.environ.get("REPOWISE_EMBEDDER", "mock").lower()
+    try:
+        embedder = _construct_embedder(name)
+    except Exception as exc:
+        detail = str(exc).strip() or type(exc).__name__
+        _embedder_status.update({"name": name, "degraded": True, "reason": detail})
+        logger.error(
+            "embedder_build_failed: configured embedder %r could not be built (%s). "
+            "Serving keyless vectors — chat and semantic search will return nothing "
+            "against a real index. Set its API key in the environment, in the repo's "
+            ".repowise/.env, or as embedder_api_key in ~/.repowise/config.yaml.",
+            name,
+            detail,
+        )
+        return KeylessEmbedder()
+    _embedder_status.update(
+        {"name": name, "degraded": False, "reason": None}
+        if not isinstance(embedder, KeylessEmbedder)
+        else {"name": "mock", "degraded": False, "reason": None}
+    )
+    return embedder
+
+
+def _construct_embedder(name: str):
+    """Instantiate *name*, or raise. See :func:`_build_embedder` for the policy."""
+    api_key = _embedder_api_key(name)
     if name == "ollama":
         from repowise.core.providers.embedding.ollama import OllamaEmbedder
 
@@ -109,24 +168,25 @@ def _build_embedder():
         # Honour the indexed embedding model so serve doesn't silently rebuild
         # the embedder with a different default than init used (issue #426).
         model = os.environ.get("REPOWISE_EMBEDDING_MODEL")
+        kwargs = {"api_key": api_key} if api_key else {}
         if model:
-            return GeminiEmbedder(model=model, output_dimensionality=dims)
-        return GeminiEmbedder(output_dimensionality=dims)
+            return GeminiEmbedder(model=model, output_dimensionality=dims, **kwargs)
+        return GeminiEmbedder(output_dimensionality=dims, **kwargs)
     if name == "openai":
         from repowise.core.providers.embedding.openai import OpenAIEmbedder
 
         model = os.environ.get("REPOWISE_EMBEDDING_MODEL", "text-embedding-3-small")
-        return OpenAIEmbedder(model=model)
+        return OpenAIEmbedder(model=model, api_key=api_key)
     if name == "openrouter":
         from repowise.core.providers.embedding.openrouter import OpenRouterEmbedder
 
         model = os.environ.get("REPOWISE_EMBEDDING_MODEL", "google/gemini-embedding-001")
-        return OpenRouterEmbedder(model=model)
+        return OpenRouterEmbedder(model=model, api_key=api_key)
     if name == "voxell":
         from repowise.core.providers.embedding.voxell import VoxellEmbedder
 
         model = os.environ.get("REPOWISE_EMBEDDING_MODEL", "forge-turbo")
-        return VoxellEmbedder(model=model)
+        return VoxellEmbedder(model=model, api_key=api_key)
     logger.warning(
         "embedder.mock_active: set REPOWISE_EMBEDDER=gemini, openai, openrouter, voxell, "
         "or ollama for real RAG"
@@ -208,6 +268,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # in-memory store is used only when this database cannot be associated with
     # a repository or the optional LanceDB runtime is unavailable.
     embedder = _build_embedder()
+    app.state.embedder_status = dict(_embedder_status)
     from repowise.server.search_helpers import build_primary_vector_store
 
     vector_store, primary_vector_repo_id = await build_primary_vector_store(

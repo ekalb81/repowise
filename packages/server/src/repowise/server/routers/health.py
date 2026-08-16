@@ -31,8 +31,20 @@ async def health_check(request: Request) -> HealthResponse:
     except Exception:
         db_status = "error"
 
-    status = "healthy" if db_status == "ok" else "degraded"
-    return HealthResponse(status=status, db=db_status, version=__version__)
+    embedder = getattr(request.app.state, "embedder_status", None) or {}
+    embedder_degraded = bool(embedder.get("degraded"))
+
+    # A configured embedder that would not build is a degraded server, not a
+    # healthy one: every chat and semantic-search answer comes back empty.
+    status = "healthy" if db_status == "ok" and not embedder_degraded else "degraded"
+    return HealthResponse(
+        status=status,
+        db=db_status,
+        version=__version__,
+        embedder=embedder.get("name"),
+        embedder_degraded=embedder_degraded,
+        embedder_reason=embedder.get("reason"),
+    )
 
 
 @router.get("/metrics")

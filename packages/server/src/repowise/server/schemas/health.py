@@ -9,6 +9,13 @@ class HealthResponse(BaseModel):
     status: str
     db: str
     version: str
+    #: Which embedder the server actually built, and whether it is the one that
+    #: was asked for. A server serving keyless vectors against a real index
+    #: answers every semantic query with nothing while looking healthy, so the
+    #: degradation has to be visible to whatever is watching the container.
+    embedder: str | None = None
+    embedder_degraded: bool = False
+    embedder_reason: str | None = None
 
 
 class CoordinatorHealthResponse(BaseModel):
