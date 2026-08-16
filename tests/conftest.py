@@ -50,6 +50,45 @@ def _ambient_steering_vars() -> set[str]:
 
 
 @pytest.fixture(scope="session", autouse=True)
+def _isolate_home(tmp_path_factory: pytest.TempPathFactory):
+    """Point the home directory at an empty temp dir for the whole session.
+
+    Stripping ambient *variables* is only half of it: a good deal of what
+    repowise resolves lives in ambient *files* under the home directory, and
+    the env fixture below cannot see those. The global
+    ``~/.repowise/config.yaml`` holds an ``embedder`` and its
+    ``embedder_api_key``, which is enough to make a test that should observe a
+    missing credential quietly observe a working one — that is how a
+    degradation test on this machine built a real embedder and passed for the
+    wrong reason. The agent-wiring code probes ``~/.claude``, ``~/.codex`` and
+    ``~/.cursor`` the same way, so "is this agent installed" answers
+    differently on a developer's box than in CI.
+
+    Only ``Path.home()`` is redirected, deliberately, and not the environment
+    that ``os.path.expanduser("~")`` reads. Redirecting both looked tidier and
+    broke a real guard: ``rewrite_hook._find_repo_root`` walks up from cwd and
+    refuses to treat *the home directory* as a repo root, and on Windows the
+    temp directory lives under the user profile — so every ``tmp_path`` walk-up
+    reaches the developer's real home. With that home no longer recognised as
+    home, a stray ``~/.repowise`` there captured tmp dirs that must pass
+    through untouched.
+
+    So the split is the point: the config readers this fixture exists for go
+    through ``Path.home()``, while the guards that need to recognise the
+    machine's actual home keep reading it.
+    """
+    home = tmp_path_factory.mktemp("home")
+    from _pytest.monkeypatch import MonkeyPatch
+
+    mp = MonkeyPatch()
+    mp.setattr("pathlib.Path.home", classmethod(lambda cls: home))
+    try:
+        yield home
+    finally:
+        mp.undo()
+
+
+@pytest.fixture(scope="session", autouse=True)
 def _isolate_ambient_env():
     """Hide the developer's own credentials and config from every test.
 

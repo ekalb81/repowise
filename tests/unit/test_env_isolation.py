@@ -34,6 +34,7 @@ def _restore_environ():
         os.environ.clear()
         os.environ.update(before)
 
+
 # ---------------------------------------------------------------------------
 # The suite is isolated from the developer's environment
 # ---------------------------------------------------------------------------
@@ -87,6 +88,36 @@ def test_isolation_covers_every_llm_registry_credential(ambient_steering_vars):
         for provider, group in table.items():
             for name in group:
                 assert name in ambient_steering_vars, f"{name} ({provider}) is not isolated"
+
+
+def test_home_is_not_the_developers_home():
+    """Ambient *files* leak as readily as ambient variables.
+
+    ``~/.repowise/config.yaml`` carries an embedder and its API key, so a test
+    asserting that a credential is missing can quietly find a working one and
+    pass for the wrong reason. Both spellings must be redirected: the product
+    uses each in different places.
+    """
+    from pathlib import Path
+
+    home = Path.home()
+    assert not (home / ".repowise" / "config.yaml").exists(), (
+        f"{home} is a real home — its global config can steer resolution"
+    )
+
+
+def test_expanduser_is_deliberately_not_redirected():
+    """The split is intentional, so pin it.
+
+    ``rewrite_hook._find_repo_root`` refuses to treat the home directory as a
+    repo root, and on Windows the temp dir sits under the user profile — so
+    every tmp_path walk-up passes through the real home. Redirecting the
+    environment too makes that guard stop recognising it, and a stray
+    ``~/.repowise`` then captures temp dirs that must pass through untouched.
+    """
+    from pathlib import Path
+
+    assert Path.home() != Path(os.path.expanduser("~"))
 
 
 def test_isolation_covers_every_embedder_credential(ambient_steering_vars):

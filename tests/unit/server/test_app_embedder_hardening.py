@@ -21,15 +21,14 @@ from repowise.server import app as app_module
 
 
 @pytest.fixture(autouse=True)
-def _hermetic(tmp_path, monkeypatch):
-    """Isolate from the developer's own ~/.repowise/config.yaml.
+def _hermetic():
+    """Restore ``os.environ`` and the module's status between cases.
 
-    The key resolver reads the global config, so on a machine that has a real
-    embedder key saved there these tests would build a working embedder and
-    the degradation cases could never fire. The env-var isolation in
-    tests/conftest.py does not cover a file.
+    The home directory these tests depend on being empty is handled session-
+    wide by ``_isolate_home`` in tests/conftest.py — without it the key
+    resolver reads the developer's own ``~/.repowise/config.yaml``, finds a
+    real embedder key, and the degradation cases never fire.
     """
-    monkeypatch.setattr("pathlib.Path.home", classmethod(lambda cls: tmp_path))
     before = dict(os.environ)
     try:
         yield

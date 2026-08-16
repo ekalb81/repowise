@@ -26,7 +26,9 @@ def stub_serve(monkeypatch) -> dict:
 
     monkeypatch.setattr("uvicorn.run", fake_run)
     monkeypatch.setattr(serve_cmd, "_load_local_provider_config", lambda: None)
-    monkeypatch.setattr(serve_cmd, "_setup_embedder", lambda: None)
+    # Takes the repo path now, so the key for a repo-pinned embedder can be
+    # resolved; the stub accepts whatever it is handed.
+    monkeypatch.setattr(serve_cmd, "_setup_embedder", lambda *a, **k: None)
     monkeypatch.setattr(serve_cmd, "_serve_lock_path", lambda: None)
     # No real sockets: the port probe is not what these tests are about.
     monkeypatch.setattr(serve_cmd, "_find_free_port", lambda _host, port, _label: port)
