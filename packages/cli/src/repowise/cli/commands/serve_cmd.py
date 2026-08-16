@@ -71,15 +71,44 @@ def _remove_serve_lock(lock_path: Path) -> None:
         pass
 
 
-def _setup_embedder() -> None:
+def _ensure_embedder_key(embedder: str, repo_path: Path | None = None) -> None:
+    """Put *embedder*'s credential in the environment if it is not there already.
+
+    Naming an embedder and having its key are separate facts, and ``serve``
+    used to conflate them: step 3 of the config pass sets
+    ``REPOWISE_EMBEDDER`` from the repo's ``config.yaml``, then
+    :func:`_setup_embedder` saw it set and returned before restoring any key,
+    so the app built a keyless embedder and the whole server failed to start.
+
+    That was invisible for as long as the keyed embedders were ones whose
+    variable tends to be exported anyway (``OPENAI_API_KEY``). An embedder
+    whose key lives only in ``.repowise/.env`` or the global config — voxell —
+    fails every time.
+
+    Resolution goes through the shared resolver rather than the global config
+    alone, so a key saved per-repo is found too.
+    """
+    from repowise.cli.providers.keys import embedder_key_env_vars, resolve_embedder_api_key
+
+    env_vars = embedder_key_env_vars(embedder)
+    if not env_vars or any(os.environ.get(var) for var in env_vars):
+        return  # keyless backend, or the key is already exported
+    lookup = resolve_embedder_api_key(embedder, repo_path)
+    if lookup.key:
+        os.environ[env_vars[0]] = lookup.key
+
+
+def _setup_embedder(repo_path: Path | None = None) -> None:
     """Ensure REPOWISE_EMBEDDER is set before the server starts.
 
     Priority:
-      1. Already set in environment → nothing to do.
+      1. Already set in environment → make sure its key is there too.
       2. Saved in ~/.repowise/config.yaml → restore it (and its API key).
       3. Prompt the user interactively → save choice for next time.
     """
-    if os.environ.get("REPOWISE_EMBEDDER"):
+    configured = os.environ.get("REPOWISE_EMBEDDER")
+    if configured:
+        _ensure_embedder_key(configured, repo_path)
         return
 
     # Check global config saved by a previous serve/init run.
@@ -605,7 +634,9 @@ def serve_command(
     # Existing env vars always take precedence.
     _load_local_provider_config()
 
-    _setup_embedder()
+    # Pass the repo so a key saved in its own .repowise/.env is found, not just
+    # the one in the global config.
+    _setup_embedder(Path.cwd())
 
     # Auto-detect local .repowise/ directory if REPOWISE_DB_URL is not set.
     # repowise init writes to <repo>/.repowise/wiki.db, so honour it when
